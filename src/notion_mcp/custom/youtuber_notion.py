@@ -8,8 +8,9 @@ Handles series and episodes with specific business rules:
 - Episode 1 has series synopsis
 """
 
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, Optional
+
 import structlog
 
 from notion_mcp.custom.base import CustomNotion
@@ -21,14 +22,13 @@ from notion_mcp.utils import (
     format_date_gmt3,
 )
 
-
 logger = structlog.get_logger(__name__)
 
 
 class YoutuberNotion(CustomNotion):
     """
     Youtuber-specific Notion implementation
-    
+
     Business Rules:
     - Series: No data_lancamento, period = recording schedule
     - Episodes: WITH data_lancamento (publication date)
@@ -36,17 +36,17 @@ class YoutuberNotion(CustomNotion):
     - Recording hours: 21:00-23:50 (default)
     - Relation field: "Item Principal"
     """
-    
+
     RECORDING_START = 21  # 21:00
     RECORDING_END = 23.83  # 23:50
-    
+
     def __init__(self, service: NotionService, database_id: str):
         super().__init__(service, database_id, DatabaseType.YOUTUBER)
-    
+
     def get_default_icon(self) -> str:
         """Default icon for youtuber cards"""
         return "🎬"
-    
+
     async def create_card(
         self,
         title: str,
@@ -58,7 +58,7 @@ class YoutuberNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Create series card
-        
+
         Args:
             title: Series title (without emojis)
             status: Status (default: "Não iniciado")
@@ -66,10 +66,10 @@ class YoutuberNotion(CustomNotion):
             descricao: Series description
             icon: Emoji icon (default: 🎬)
             **kwargs: Additional properties
-        
+
         Returns:
             Created series page object
-        
+
         Example:
             >>> youtuber = YoutuberNotion(service, database_id)
             >>> series = await youtuber.create_card(
@@ -83,43 +83,42 @@ class YoutuberNotion(CustomNotion):
         """
         # Validate data
         data = {
-            'title': title,
-            'status': status,
+            "title": title,
+            "status": status,
         }
         if periodo:
-            data['periodo'] = periodo
-        
+            data["periodo"] = periodo
+
         self._validate_and_prepare(data)
-        
+
         # Build properties
         properties = {
             "Project name": self.service.build_title_property(title),
             "Status": self.service.build_status_property(status),
         }
-        
+
         if periodo:
             properties["Periodo"] = self.service.build_date_property(
-                periodo['start'],
-                periodo.get('end')
+                periodo["start"], periodo.get("end")
             )
-        
+
         if descricao:
             properties["Descrição"] = self.service.build_rich_text_property(descricao)
-        
+
         # Build icon
         if icon is None:
             icon = self.get_default_icon()
-        
+
         icon_dict = self._get_icon_dict(icon)
-        
+
         logger.info("creating_series", title=title)
-        
+
         return await self.service.create_page(
             database_id=self.database_id,
             properties=properties,
             icon=icon_dict,
         )
-    
+
     async def create_episode(
         self,
         parent_id: str,
@@ -134,7 +133,7 @@ class YoutuberNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Create episode linked to series
-        
+
         Args:
             parent_id: Series ID
             episode_number: Episode number
@@ -145,10 +144,10 @@ class YoutuberNotion(CustomNotion):
             status: Status (default: "Para Gravar")
             icon: Emoji icon (default: 📺)
             **kwargs: Additional properties
-        
+
         Returns:
             Created episode page object
-        
+
         Example:
             >>> episode = await youtuber.create_episode(
             ...     parent_id=series_id,
@@ -162,51 +161,48 @@ class YoutuberNotion(CustomNotion):
         # Validate episode 1 has synopsis
         if episode_number == 1 and not resumo_episodio:
             raise ValueError("Episode 1 must have resumo_episodio (series synopsis)")
-        
+
         # Calculate recording end (default 23:50)
         recording_end = recording_date.replace(hour=23, minute=50, second=0)
-        
+
         # Build period (recording schedule)
         periodo = create_period(recording_date, recording_end, include_time=True)
-        
+
         # Format publication date
         data_lancamento = format_date_gmt3(publication_date, include_time=True)
-        
+
         # Build properties
         properties = {
             "Project name": self.service.build_title_property(title),
             "Status": self.service.build_status_property(status),
             "Item Principal": self.service.build_relation_property([parent_id]),
-            "Periodo": self.service.build_date_property(
-                periodo['start'],
-                periodo.get('end')
-            ),
+            "Periodo": self.service.build_date_property(periodo["start"], periodo.get("end")),
             "Data de Lançamento": self.service.build_date_property(data_lancamento),
         }
-        
+
         if resumo_episodio:
             properties["Resumo do Episódio"] = self.service.build_rich_text_property(
                 resumo_episodio
             )
-        
+
         # Build icon
         icon_dict = self._get_icon_dict(icon)
-        
+
         logger.info(
             "creating_episode",
             parent_id=parent_id,
             episode=episode_number,
             title=title,
-            recording=periodo['start'],
+            recording=periodo["start"],
             publication=data_lancamento,
         )
-        
+
         return await self.service.create_page(
             database_id=self.database_id,
             properties=properties,
             icon=icon_dict,
         )
-    
+
     async def create_subitem(
         self,
         parent_id: str,
@@ -215,20 +211,18 @@ class YoutuberNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Generic subitem creation for youtuber database
-        
+
         Args:
             parent_id: Parent series ID
             title: Subitem title
             **kwargs: Additional properties
-        
+
         Returns:
             Created page object
         """
         # This is typically not used directly - prefer create_episode()
         logger.warning(
-            "generic_youtuber_subitem",
-            message="Use create_episode() instead for better validation"
+            "generic_youtuber_subitem", message="Use create_episode() instead for better validation"
         )
-        
-        return await self.create_card(title=title, **kwargs)
 
+        return await self.create_card(title=title, **kwargs)

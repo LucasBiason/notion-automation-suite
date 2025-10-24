@@ -10,6 +10,7 @@ from typing import Dict, List
 
 class DatabaseType(str, Enum):
     """Supported database types"""
+
     WORK = "work"
     STUDIES = "studies"
     PERSONAL = "personal"
@@ -18,6 +19,7 @@ class DatabaseType(str, Enum):
 
 class WorkStatus(str, Enum):
     """Valid statuses for Work database"""
+
     NAO_INICIADO = "Não iniciado"
     EM_ANDAMENTO = "Em Andamento"
     EM_REVISAO = "Em Revisão"
@@ -28,6 +30,7 @@ class WorkStatus(str, Enum):
 
 class StudiesStatus(str, Enum):
     """Valid statuses for Studies database"""
+
     NAO_ADQUIRIDO = "Não Adquirido"
     PARA_FAZER = "Para Fazer"
     EM_REVISAO = "Em Revisão"
@@ -39,6 +42,7 @@ class StudiesStatus(str, Enum):
 
 class PersonalStatus(str, Enum):
     """Valid statuses for Personal database"""
+
     NAO_INICIADO = "Não iniciado"
     EM_ANDAMENTO = "Em Andamento"
     CONCLUIDO = "Concluído"
@@ -47,6 +51,7 @@ class PersonalStatus(str, Enum):
 
 class YoutuberStatus(str, Enum):
     """Valid statuses for Youtuber database"""
+
     PARA_GRAVAR = "Para Gravar"
     NAO_INICIADO = "Não iniciado"
     EDITADO = "Editado"
@@ -59,6 +64,7 @@ class YoutuberStatus(str, Enum):
 
 class Priority(str, Enum):
     """Valid priorities"""
+
     BAIXA = "Baixa"
     NORMAL = "Normal"
     ALTA = "Alta"
@@ -120,4 +126,3 @@ NOTION_BASE_URL = "https://api.notion.com/v1"
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 RATE_LIMIT_PER_SECOND = 3
-

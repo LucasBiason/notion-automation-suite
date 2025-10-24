@@ -8,18 +8,16 @@ Handles work projects and tasks with specific business rules:
 """
 
 from typing import Any, Dict, Optional
+
 import structlog
 
 from notion_mcp.custom.base import CustomNotion
 from notion_mcp.services.notion_service import NotionService
 from notion_mcp.utils import (
     DatabaseType,
-    WorkStatus,
     Priority,
-    create_period,
-    format_date_gmt3,
+    WorkStatus,
 )
-
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +25,7 @@ logger = structlog.get_logger(__name__)
 class WorkNotion(CustomNotion):
     """
     Work-specific Notion implementation
-    
+
     Business Rules:
     - Default client: "Astracode"
     - Default project: Based on context
@@ -35,14 +33,14 @@ class WorkNotion(CustomNotion):
     - Default priority: "Normal"
     - Relation field: "Item Principal"
     """
-    
+
     def __init__(self, service: NotionService, database_id: str):
         super().__init__(service, database_id, DatabaseType.WORK)
-    
+
     def get_default_icon(self) -> str:
         """Default icon for work cards"""
         return "🚀"
-    
+
     async def create_card(
         self,
         title: str,
@@ -58,7 +56,7 @@ class WorkNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Create work project or task
-        
+
         Args:
             title: Project/task title (without emojis)
             status: Work status (default: "Não iniciado")
@@ -70,10 +68,10 @@ class WorkNotion(CustomNotion):
             descricao: Description
             icon: Emoji icon (default: 🚀)
             **kwargs: Additional properties
-        
+
         Returns:
             Created page object
-        
+
         Example:
             >>> work = WorkNotion(service, database_id)
             >>> card = await work.create_card(
@@ -85,11 +83,11 @@ class WorkNotion(CustomNotion):
         """
         # Validate data
         data = {
-            'title': title,
-            'status': status,
+            "title": title,
+            "status": status,
         }
         self._validate_and_prepare(data)
-        
+
         # Build properties
         properties = {
             "Project name": self.service.build_title_property(title),
@@ -97,41 +95,40 @@ class WorkNotion(CustomNotion):
             "Cliente": self.service.build_select_property(cliente),
             "Prioridade": self.service.build_select_property(prioridade),
         }
-        
+
         if projeto:
             properties["Projeto"] = self.service.build_select_property(projeto)
-        
+
         if periodo:
             properties["Periodo"] = self.service.build_date_property(
-                periodo['start'],
-                periodo.get('end')
+                periodo["start"], periodo.get("end")
             )
-        
+
         if tempo_total:
             properties["Tempo Total"] = self.service.build_rich_text_property(tempo_total)
-        
+
         if descricao:
             properties["Descrição"] = self.service.build_rich_text_property(descricao)
-        
+
         # Build icon
         if icon is None:
             icon = self.get_default_icon()
-        
+
         icon_dict = self._get_icon_dict(icon)
-        
+
         logger.info(
             "creating_work_card",
             title=title,
             cliente=cliente,
             projeto=projeto,
         )
-        
+
         return await self.service.create_page(
             database_id=self.database_id,
             properties=properties,
             icon=icon_dict,
         )
-    
+
     async def create_subitem(
         self,
         parent_id: str,
@@ -146,7 +143,7 @@ class WorkNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Create work subitem linked to parent
-        
+
         Args:
             parent_id: Parent project/task ID
             title: Subitem title
@@ -157,10 +154,10 @@ class WorkNotion(CustomNotion):
             descricao: Description
             icon: Emoji icon (default: 📋)
             **kwargs: Additional properties
-        
+
         Returns:
             Created subitem page object
-        
+
         Example:
             >>> subitem = await work.create_subitem(
             ...     parent_id=project_id,
@@ -170,11 +167,11 @@ class WorkNotion(CustomNotion):
         """
         # Validate data
         data = {
-            'title': title,
-            'status': status,
+            "title": title,
+            "status": status,
         }
         self._validate_and_prepare(data, parent_id=parent_id)
-        
+
         # Build properties
         properties = {
             "Project name": self.service.build_title_property(title),
@@ -182,37 +179,36 @@ class WorkNotion(CustomNotion):
             "Item Principal": self.service.build_relation_property([parent_id]),
             "Prioridade": self.service.build_select_property(prioridade),
         }
-        
+
         if periodo:
             properties["Periodo"] = self.service.build_date_property(
-                periodo['start'],
-                periodo.get('end')
+                periodo["start"], periodo.get("end")
             )
-        
+
         if tempo_total:
             properties["Tempo Total"] = self.service.build_rich_text_property(tempo_total)
-        
+
         if descricao:
             properties["Descrição"] = self.service.build_rich_text_property(descricao)
-        
+
         # Build icon (default for subitems)
         if icon is None:
             icon = "📋"
-        
+
         icon_dict = self._get_icon_dict(icon)
-        
+
         logger.info(
             "creating_work_subitem",
             parent_id=parent_id,
             title=title,
         )
-        
+
         return await self.service.create_page(
             database_id=self.database_id,
             properties=properties,
             icon=icon_dict,
         )
-    
+
     async def update_status(
         self,
         page_id: str,
@@ -220,22 +216,23 @@ class WorkNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Update card status
-        
+
         Args:
             page_id: Page ID
             status: New status
-        
+
         Returns:
             Updated page object
         """
         # Validate status
         from notion_mcp.utils.validators import validate_status
+
         validate_status(status, self.database_type)
-        
+
         logger.info("updating_work_status", page_id=page_id, status=status)
-        
+
         return await self.update_card(page_id, status=status)
-    
+
     async def assign_to_project(
         self,
         page_id: str,
@@ -243,19 +240,18 @@ class WorkNotion(CustomNotion):
     ) -> Dict[str, Any]:
         """
         Assign card to project
-        
+
         Args:
             page_id: Page ID
             projeto: Project name
-        
+
         Returns:
             Updated page object
         """
         properties = {
             "Projeto": self.service.build_select_property(projeto),
         }
-        
-        logger.info("assigning_to_project", page_id=page_id, projeto=projeto)
-        
-        return await self.service.update_page(page_id, properties=properties)
 
+        logger.info("assigning_to_project", page_id=page_id, projeto=projeto)
+
+        return await self.service.update_page(page_id, properties=properties)

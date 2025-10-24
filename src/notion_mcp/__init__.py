@@ -9,11 +9,11 @@ __version__ = "0.1.0"
 __author__ = "Lucas Biason"
 __email__ = "lucas.biason@gmail.com"
 
-from notion_mcp.services.notion_service import NotionService
-from notion_mcp.custom.work_notion import WorkNotion
-from notion_mcp.custom.study_notion import StudyNotion
-from notion_mcp.custom.youtuber_notion import YoutuberNotion
 from notion_mcp.custom.personal_notion import PersonalNotion
+from notion_mcp.custom.study_notion import StudyNotion
+from notion_mcp.custom.work_notion import WorkNotion
+from notion_mcp.custom.youtuber_notion import YoutuberNotion
+from notion_mcp.services.notion_service import NotionService
 
 __all__ = [
     "NotionService",
@@ -22,4 +22,3 @@ __all__ = [
     "YoutuberNotion",
     "PersonalNotion",
 ]
-

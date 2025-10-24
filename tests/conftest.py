@@ -4,9 +4,10 @@ Pytest configuration and fixtures
 Global fixtures for all tests.
 """
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
+
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -45,4 +46,3 @@ def mock_error_response():
         "message": "Invalid request",
     }
     return response
-

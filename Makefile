@@ -44,10 +44,10 @@ docker-build:
 	docker build -t notion-mcp-server:latest .
 
 docker-run:
-	docker-compose up
+	docker compose up
 
 docker-stop:
-	docker-compose down
+	docker compose down
 
 clean:
 	rm -rf build/
