@@ -1,47 +1,102 @@
-# Notion Automation Suite
+# Notion MCP Server
 
-Suite unificada que concentra o servidor MCP, agentes autônomos, workflows e ferramentas de linha de comando para automatizar o ecossistema Notion do Lucas Biason.
+Servidor MCP enxuto para automatizar fluxos do Notion via Model Context Protocol. Ele encapsula regras de negócio específicas das bases e expõe tools compatíveis com Cursor e outros agentes MCP.
 
-## Componentes
+## Visão geral
 
-- **`notion_mcp`** — Servidor MCP completo exposto via STDIO compatível com Cursor e outros agentes Model Context Protocol.
-- **`notion_automation_suite`** — Pacote principal contendo CLI, agentes, adapters e código legado em processo de migração.
-- **`config/private/`** — Área local (fora do Git) para scripts e anotações pessoais.
-- **`docs/`** — Documentação técnica, incluindo arquitetura atual e alvo da migração.
-- **`tests/`** — Suíte de testes (unitários + integração) portados do projeto MCP.
+- **Domínios suportados:** trabalho, estudos, pessoal e conteúdo.
+- **Regras embutidas:** validação de título, status, relações, períodos e horários antes da chamada HTTP.
+- **Tecnologias:** Python 3.10+, `httpx`, `tenacity`, `structlog`, `pytest`.
+- **Integração:** execução via stdio (`notion-mcp-server`) e container Docker pronto para uso.
 
-## Instalação (Ambiente Local)
+## Estrutura do repositório
 
-```bash
-poetry shell # ou python -m venv .venv && source .venv/bin/activate
-pip install -e .[dev]
+```
+notion-automation-suite/
+├── src/
+│   ├── custom/        # Regras por domínio (Work, Studies, Personal, Youtuber)
+│   ├── services/      # Wrapper da API do Notion
+│   ├── tools/         # Definição das tools MCP
+│   ├── runtime/       # Inicialização, carga de env e loop stdio
+│   ├── utils/         # Constantes, validações e formatadores
+│   ├── exceptions/    # Exceções específicas do serviço
+│   └── notion_mcp.py  # Compatibilidade com imports antigos
+├── tests/
+│   ├── custom/
+│   ├── services/
+│   ├── tools/
+│   └── conftest.py
+├── docs/
+│   ├── README.md
+│   └── mcp/           # Documentação detalhada
+└── pyproject.toml
 ```
 
-Configure as variáveis notional no arquivo `config/defaults/env.example`.
+## Configuração do ambiente
 
-## Executando o Servidor MCP Localmente
+1. **Clonar o repositório:**
+   ```bash
+   git clone https://github.com/LucasBiason/notion-automation-suite.git
+   cd notion-automation-suite
+   ```
+
+2. **Criar ambiente virtual e instalar dependências:**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e .[dev]
+   ```
+
+3. **Configurar variáveis do Notion:**
+   - Copie `config/env.example` (caso exista) para `config/.env` ou defina as variáveis manualmente.
+   - Campos esperados:
+     - `NOTION_API_TOKEN`
+     - `NOTION_WORK_DATABASE_ID`
+     - `NOTION_STUDIES_DATABASE_ID`
+     - `NOTION_PERSONAL_DATABASE_ID`
+     - `NOTION_YOUTUBER_DATABASE_ID`
+
+4. **Executar o servidor localmente:**
+   ```bash
+   notion-mcp-server
+   ```
+   O comando carrega o ambiente, inicializa logging e disponibiliza o loop stdio.
+
+## Execução via Docker
 
 ```bash
-notion-mcp-server
+docker build -t notion-mcp-server .
+docker run -i --rm \
+  -e NOTION_API_TOKEN=secret_xxx \
+  -e NOTION_WORK_DATABASE_ID=... \
+  -e NOTION_STUDIES_DATABASE_ID=... \
+  -e NOTION_PERSONAL_DATABASE_ID=... \
+  -e NOTION_YOUTUBER_DATABASE_ID=... \
+  notion-mcp-server
 ```
 
-O comando expõe o servidor via STDIO para integração com o Cursor.
+## Testes
 
-## CLI Consolidada
+- Execute `make test` para rodar a suíte (unit + integration).
+- `ruff`, `mypy` e demais ferramentas podem ser disparadas via `make lint`/`make type` caso configurados.
 
-```bash
-notion-suite info
-```
+## Documentação
 
-Comandos específicos por domínio ficarão em `src/notion_automation_suite/cli_apps/` e serão carregados gradualmente.
+A documentação completa está em [`docs/`](docs/README.md) e inclui:
 
-## Próximos Passos
+- Visão geral e objetivos (`docs/mcp/README.md`)
+- Arquitetura detalhada (`docs/mcp/ARCHITECTURE.md`)
+- Referência de API (`docs/mcp/API.md`)
+- Guia de configuração no Cursor (`docs/mcp/SETUP_CURSOR.md`)
+- Exemplos práticos (`docs/mcp/EXAMPLES.md`)
+- Roadmap e próximos passos (`docs/mcp/ROADMAP.md`)
 
-1. Migrar workflows legados para os módulos em `domains/` e `workflows/` (ver `docs/ARCHITECTURE_TARGET.md`).
-2. Atualizar agentes para consumir a nova camada de serviços assíncrona.
-3. Revisar documentação pública e publicar imagem Docker consolidada.
-4. Desativar repositórios antigos após confirmar que o fluxo unificado está funcional.
+## Integração com agentes
 
----
+Este repositório expõe apenas o MCP. Qualquer coordenação de agentes e configurações específicas deve acontecer em [`cursor-multiagent-system`](../cursor-multiagent-system), que consome este servidor como backend de automação.
 
-> **Nota:** Scripts pessoais e anotações sensíveis foram movidos para `config/private/` e permanecem fora do versionamento para evitar exposição de dados.
+## Manutenção
+
+- Ajuste regras de negócio sempre adicionando testes correspondentes.
+- Atualize a documentação após mudanças relevantes.
+- Mantenha os tokens e IDs fora do versionamento (`config/private/` permanece ignorado).

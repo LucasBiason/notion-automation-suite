@@ -27,4 +27,8 @@ dist/
 *.egg-info/
 
 # Private configuration
+config/.env
 config/private/
+
+# Runtime artifacts
+logs/
