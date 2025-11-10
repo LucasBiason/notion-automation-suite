@@ -5,13 +5,13 @@ Implements Model Context Protocol server with custom Notion tools.
 """
 
 import asyncio
+import json
 import os
 import sys
-from typing import Any, Dict
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import structlog
 from dotenv import load_dotenv
-from fastapi import FastAPI
 
 from notion_mcp.custom import PersonalNotion, StudyNotion, WorkNotion, YoutuberNotion
 from notion_mcp.services.notion_service import NotionService
@@ -111,6 +111,10 @@ class NotionMCPServer:
             PersonalNotionTools(self.personal_notion) if self.personal_notion else None
         )
 
+        self._tool_definitions: List[Dict[str, Any]] = []
+        self._tool_handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[Any]]] = {}
+        self._initialize_tool_registry()
+
         logger.info(
             "mcp_server_initialized",
             work_enabled=self.work_notion is not None,
@@ -131,28 +135,7 @@ class NotionMCPServer:
         Returns:
             List of tool definitions for MCP protocol
         """
-        tools = []
-
-        # Base NotionService tools
-        tools.extend(self.base_tools.get_tools())
-
-        # WorkNotion tools
-        if self.work_tools:
-            tools.extend(self.work_tools.get_tools())
-
-        # StudyNotion tools
-        if self.study_tools:
-            tools.extend(self.study_tools.get_tools())
-
-        # YoutuberNotion tools
-        if self.youtuber_tools:
-            tools.extend(self.youtuber_tools.get_tools())
-
-        # PersonalNotion tools
-        if self.personal_tools:
-            tools.extend(self.personal_tools.get_tools())
-
-        return tools
+        return list(self._tool_definitions)
 
     async def handle_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """
@@ -166,128 +149,256 @@ class NotionMCPServer:
             Tool execution result
         """
         logger.info("handling_tool_call", tool=tool_name, args=arguments)
-
-        # Check if it's a base tool
-        if tool_name.startswith("notion_"):
-            return await self.base_tools.handle_tool_call(tool_name, arguments)
-
-        # Check if it's a work tool
-        elif tool_name.startswith("work_") and self.work_tools:
-            return await self.work_tools.handle_tool_call(tool_name, arguments)
-
-        # Check if it's a study tool
-        elif tool_name.startswith("study_") and self.study_tools:
-            return await self.study_tools.handle_tool_call(tool_name, arguments)
-
-        # Check if it's a youtuber tool
-        elif tool_name.startswith("youtuber_") and self.youtuber_tools:
-            return await self.youtuber_tools.handle_tool_call(tool_name, arguments)
-
-        # Check if it's a personal tool
-        elif tool_name.startswith("personal_") and self.personal_tools:
-            return await self.personal_tools.handle_tool_call(tool_name, arguments)
-
-        else:
+        handler = self._tool_handlers.get(tool_name)
+        if handler is None:
             raise ValueError(f"Unknown tool: {tool_name}")
 
+        return await handler(arguments)
 
-# FastAPI app for HTTP interface (optional)
-app = FastAPI(
-    title="Notion MCP Server",
-    description="Complete MCP server for Notion integration",
-    version="0.1.0",
-)
+    def _initialize_tool_registry(self) -> None:
+        """Register all available tool definitions with their handlers."""
+        self._register_tool_set(self.base_tools, self.base_tools.handle_tool_call)
+        self._register_tool_set(self.work_tools, self.work_tools.handle_tool_call if self.work_tools else None)
+        self._register_tool_set(
+            self.study_tools,
+            self.study_tools.handle_tool_call if self.study_tools else None,
+        )
+        self._register_tool_set(
+            self.youtuber_tools,
+            self.youtuber_tools.handle_tool_call if self.youtuber_tools else None,
+        )
+        self._register_tool_set(
+            self.personal_tools,
+            self.personal_tools.handle_tool_call if self.personal_tools else None,
+        )
 
+    def _register_tool_set(
+        self,
+        tool_provider: Optional[Any],
+        handler: Optional[Callable[[str, Dict[str, Any]], Awaitable[Any]]],
+    ) -> None:
+        if tool_provider is None or handler is None:
+            return
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "notion-mcp-server", "version": "0.1.0"}
+        for definition in tool_provider.get_tools():
+            name = definition.get("name")
+            if not name:
+                raise ValueError("Tool definition missing 'name'")
 
+            if name in self._tool_handlers:
+                raise ValueError(f"Duplicated tool registration: {name}")
 
-@app.get("/tools")
-async def list_tools():
-    """List available tools"""
-    server = NotionMCPServer()
-    tools = server.get_tools()
-    await server.close()
-    return {"tools": tools, "count": len(tools)}
+            self._tool_definitions.append(definition)
+            self._tool_handlers[name] = self._make_tool_invoker(handler, name)
 
+    @staticmethod
+    def _make_tool_invoker(
+        handler: Callable[[str, Dict[str, Any]], Awaitable[Any]],
+        tool_name: str,
+    ) -> Callable[[Dict[str, Any]], Awaitable[Any]]:
+        async def _invoke(arguments: Dict[str, Any]) -> Any:
+            return await handler(tool_name, arguments)
 
-def main():
-    """
-    Main entry point for MCP server
+        return _invoke
 
-    This implements the MCP stdio protocol for use with AI assistants.
-    """
-    import json
+    def get_resources(self) -> List[Dict[str, Any]]:
+        """Return resource descriptors for configured databases."""
+        resources: List[Dict[str, Any]] = []
 
-    logger.info("starting_mcp_server")
+        for db_type, db_id in self.database_ids.items():
+            if not db_id:
+                continue
 
-    try:
-        server = NotionMCPServer()
-
-        # MCP stdio protocol implementation
-        while True:
-            line = sys.stdin.readline()
-            if not line:
-                break
-
-            try:
-                request = json.loads(line)
-
-                # Handle different MCP requests
-                if request.get("method") == "tools/list":
-                    tools = server.get_tools()
-                    response = {
-                        "jsonrpc": "2.0",
-                        "id": request.get("id"),
-                        "result": {"tools": tools},
-                    }
-
-                elif request.get("method") == "tools/call":
-                    params = request.get("params", {})
-                    tool_name = params.get("name")
-                    arguments = params.get("arguments", {})
-
-                    result = asyncio.run(server.handle_tool_call(tool_name, arguments))
-
-                    response = {
-                        "jsonrpc": "2.0",
-                        "id": request.get("id"),
-                        "result": {"content": [{"type": "text", "text": json.dumps(result)}]},
-                    }
-
-                else:
-                    response = {
-                        "jsonrpc": "2.0",
-                        "id": request.get("id"),
-                        "error": {
-                            "code": -32601,
-                            "message": f"Unknown method: {request.get('method')}",
-                        },
-                    }
-
-                print(json.dumps(response), flush=True)
-
-            except Exception as e:
-                logger.error("request_error", error=str(e))
-                error_response = {
-                    "jsonrpc": "2.0",
-                    "id": request.get("id") if "request" in locals() else None,
-                    "error": {
-                        "code": -32603,
-                        "message": str(e),
-                    },
+            resources.append(
+                {
+                    "uri": f"notion://database/{db_type.value}",
+                    "name": f"{db_type.value.title()} Database",
+                    "description": (
+                        "Esquema completo da base do Notion utilizada pelo MCP "
+                        f"({db_type.value})."
+                    ),
+                    "mimeType": "application/json",
                 }
-                print(json.dumps(error_response), flush=True)
+            )
 
-    except KeyboardInterrupt:
-        logger.info("server_interrupted")
+        return resources
 
-    finally:
-        asyncio.run(server.close())
-        logger.info("server_shutdown")
+    async def read_resource(self, uri: str) -> Dict[str, Any]:
+        """Read resource content referenced by URI."""
+        if not uri:
+            raise ValueError("Resource URI is required")
+
+        prefix = "notion://database/"
+        if not uri.startswith(prefix):
+            raise ValueError(f"Unsupported resource URI: {uri}")
+
+        db_key = uri[len(prefix) :]
+        try:
+            database_type = DatabaseType(db_key)
+        except ValueError as exc:  # noqa: F841 - we log a clear error below
+            raise ValueError(f"Unknown database resource: {uri}") from exc
+
+        database_id = self.database_ids.get(database_type)
+        if not database_id:
+            raise ValueError(f"Database ID for {database_type.value} is not configured")
+
+        schema = await self.service.get_database(database_id)
+
+        return {
+            "uri": uri,
+            "mimeType": "application/json",
+            "text": json.dumps(schema, ensure_ascii=False),
+        }
+
+    def get_prompts(self) -> List[Dict[str, Any]]:
+        """Return registered conversational prompts (none for now)."""
+        return []
+
+
+class MCPStdIOServer:
+    """Minimal MCP stdio server implementation for Cursor integration."""
+
+    def __init__(self, notion_server: NotionMCPServer):
+        self._notion_server = notion_server
+
+    async def run(self) -> None:
+        """Run stdio loop handling MCP JSON-RPC requests."""
+        loop = asyncio.get_running_loop()
+        logger.info("mcp_stdio_server_started")
+
+        try:
+            while True:
+                line = await loop.run_in_executor(None, sys.stdin.readline)
+                if line == "":
+                    break
+
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                response = await self._handle_line(stripped)
+                if response is not None:
+                    await self._write_response(response)
+
+        except KeyboardInterrupt:
+            logger.info("mcp_stdio_interrupted")
+        finally:
+            await self._notion_server.close()
+            logger.info("mcp_stdio_server_stopped")
+
+    async def _handle_line(self, raw_line: str) -> Optional[Dict[str, Any]]:
+        try:
+            request = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            logger.error("invalid_json", error=str(exc))
+            return self._build_error_response(None, -32700, f"Invalid JSON: {exc.msg}")
+
+        try:
+            return await self._handle_request(request)
+        except Exception as exc:  # noqa: BLE001 - intentional broad catch to reply via MCP
+            logger.error("request_processing_error", error=str(exc))
+            return self._build_error_response(
+                request.get("id"),
+                -32603,
+                str(exc),
+            )
+
+    async def _handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        method = request.get("method")
+        request_id = request.get("id")
+
+        if method == "initialize":
+            result = {
+                "capabilities": {
+                    "tools": {"list": True, "call": True},
+                    "resources": {"list": True, "read": True},
+                    "prompts": {"list": True},
+                }
+            }
+            return self._build_success_response(request_id, result)
+
+        if method == "tools/list":
+            tools = self._notion_server.get_tools()
+            return self._build_success_response(request_id, {"tools": tools})
+
+        if method == "tools/call":
+            params = request.get("params", {})
+            tool_name = params.get("name")
+            arguments = params.get("arguments", {}) if params else {}
+
+            if not tool_name:
+                raise ValueError("Tool name is required for tools/call")
+
+            result = await self._notion_server.handle_tool_call(tool_name, arguments)
+            content = [
+                {
+                    "type": "text",
+                    "text": json.dumps(result, ensure_ascii=False),
+                }
+            ]
+            return self._build_success_response(request_id, {"content": content})
+
+        if method == "resources/list":
+            resources = self._notion_server.get_resources()
+            return self._build_success_response(request_id, {"resources": resources})
+
+        if method == "resources/read":
+            params = request.get("params", {})
+            uri = params.get("uri") if params else None
+            resource_content = await self._notion_server.read_resource(uri)
+            return self._build_success_response(request_id, {"contents": [resource_content]})
+
+        if method == "prompts/list":
+            prompts = self._notion_server.get_prompts()
+            return self._build_success_response(request_id, {"prompts": prompts})
+
+        if method == "notifications/subscribe":
+            # No-op subscription support
+            return self._build_success_response(request_id, {})
+
+        if method == "ping":
+            return self._build_success_response(request_id, {"pong": True})
+
+        raise ValueError(f"Unknown method: {method}")
+
+    @staticmethod
+    def _build_success_response(request_id: Any, result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        response: Dict[str, Any] = {"jsonrpc": "2.0", "id": request_id}
+        response["result"] = result or {}
+        return response
+
+    @staticmethod
+    def _build_error_response(request_id: Any, code: int, message: str) -> Dict[str, Any]:
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": code,
+                "message": message,
+            },
+        }
+
+    async def _write_response(self, response: Dict[str, Any]) -> None:
+        """Write response JSON to stdout without blocking event loop."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._print_response, response)
+
+    @staticmethod
+    def _print_response(response: Dict[str, Any]) -> None:
+        print(json.dumps(response), flush=True)
+
+
+async def _async_main() -> None:
+    logger.info("starting_mcp_server")
+    server = NotionMCPServer()
+    stdio_server = MCPStdIOServer(server)
+    await stdio_server.run()
+    logger.info("mcp_server_shutdown")
+
+
+def main() -> None:
+    """Entry point for MCP stdio execution."""
+    asyncio.run(_async_main())
 
 
 if __name__ == "__main__":

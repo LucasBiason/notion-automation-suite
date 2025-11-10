@@ -1,23 +1,21 @@
 version: '3.8'
 
 services:
-  notion-mcp-server:
+  notion-suite:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: notion-mcp-server
-    ports:
-      - "8000:8000"
+    container_name: notion-automation-suite
+    stdin_open: true
+    tty: true
     environment:
-      - NOTION_TOKEN=${NOTION_TOKEN}
+      - NOTION_API_TOKEN=${NOTION_API_TOKEN}
       - NOTION_WORK_DATABASE_ID=${NOTION_WORK_DATABASE_ID}
       - NOTION_STUDIES_DATABASE_ID=${NOTION_STUDIES_DATABASE_ID}
       - NOTION_PERSONAL_DATABASE_ID=${NOTION_PERSONAL_DATABASE_ID}
       - NOTION_YOUTUBER_DATABASE_ID=${NOTION_YOUTUBER_DATABASE_ID}
       - NOTION_API_VERSION=${NOTION_API_VERSION:-2022-06-28}
       - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-30}
-      - MCP_SERVER_HOST=${MCP_SERVER_HOST:-0.0.0.0}
-      - MCP_SERVER_PORT=${MCP_SERVER_PORT:-8000}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
     env_file:
@@ -26,16 +24,10 @@ services:
       - ./src:/app/src:ro
       - ./logs:/app/logs
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
     networks:
-      - notion-mcp-network
+      - notion-suite-network
 
 networks:
-  notion-mcp-network:
+  notion-suite-network:
     driver: bridge
 

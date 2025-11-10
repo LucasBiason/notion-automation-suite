@@ -3,12 +3,18 @@ Personal Notion MCP Tools
 
 Provides specialized tools for personal database operations.
 """
-
-from typing import Any, Dict, List
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import structlog
 
+from notion_mcp.custom.personal_notion import PersonalNotion
+from notion_mcp.utils.constants import PersonalStatus
+
 logger = structlog.get_logger(__name__)
+
+STATUS_OPTIONS = [status.value for status in PersonalStatus]
+TEMPLATE_OPTIONS = sorted(PersonalNotion.TEMPLATES.keys())
 
 
 class PersonalNotionTools:
@@ -17,143 +23,193 @@ class PersonalNotionTools:
     def __init__(self, personal_notion):
         self.personal_notion = personal_notion
 
+    def _ensure_available(self) -> None:
+        if self.personal_notion is None:
+            raise ValueError(
+                "Personal database is not configured for this MCP server. Configure NOTION_PERSONAL_DATABASE_ID first."
+            )
+
+    @staticmethod
+    def _extract_data(payload: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        data = payload.pop("data", None)
+        if data is None:
+            return None
+
+        start = data.get("start")
+        if not start:
+            raise ValueError("Campo 'data.start' é obrigatório quando 'data' é informado.")
+
+        result = {"start": start}
+        if "end" in data and data["end"]:
+            result["end"] = data["end"]
+        return result
+
     def get_tools(self) -> List[Dict[str, Any]]:
-        """Get personal-specific tools"""
+        """Return tool metadata for the personal database."""
         return [
             {
                 "name": "personal_create_task",
-                "description": "Create personal task/event (uses 'Data' field, not 'Período')",
+                "description": "Criar tarefa ou compromisso pessoal usando o campo 'Data'.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "title": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": STATUS_OPTIONS,
+                            "default": PersonalStatus.NAO_INICIADO.value,
+                        },
                         "atividade": {"type": "string"},
-                        "data_start": {"type": "string", "description": "ISO datetime"},
-                        "data_end": {"type": "string", "description": "ISO datetime"},
-                        "status": {"type": "string", "default": "Para Fazer"},
-                        "icon": {"type": "string", "description": "Emoji icon"},
+                        "data": {
+                            "type": "object",
+                            "properties": {
+                                "start": {"type": "string", "description": "ISO 8601"},
+                                "end": {"type": "string", "description": "ISO 8601"},
+                            },
+                        },
+                        "descricao": {"type": "string"},
+                        "icon": {"type": "string", "default": "👤"},
                     },
                     "required": ["title"],
                 },
             },
             {
                 "name": "personal_create_subtask",
-                "description": "Create personal subtask linked to parent",
+                "description": "Criar subtarefa vinculada a uma tarefa principal.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "parent_id": {"type": "string"},
                         "title": {"type": "string"},
-                        "status": {"type": "string", "default": "Para Fazer"},
+                        "status": {
+                            "type": "string",
+                            "enum": STATUS_OPTIONS,
+                            "default": PersonalStatus.NAO_INICIADO.value,
+                        },
+                        "data": {"type": "object"},
+                        "descricao": {"type": "string"},
+                        "icon": {"type": "string", "default": "✅"},
                     },
                     "required": ["parent_id", "title"],
                 },
             },
             {
-                "name": "personal_create_event",
-                "description": "Create personal event with specific template",
+                "name": "personal_use_template",
+                "description": "Criar card pessoal utilizando um template pré-definido.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "title": {"type": "string"},
-                        "atividade": {"type": "string"},
-                        "data_start": {"type": "string", "description": "ISO datetime"},
-                        "data_end": {"type": "string", "description": "ISO datetime"},
-                        "template": {"type": "string", "description": "Event template type"},
-                        "icon": {"type": "string", "description": "Emoji icon"},
+                        "template_name": {"type": "string", "enum": TEMPLATE_OPTIONS},
+                        "reference_date": {
+                            "type": "string",
+                            "description": "Data base para o template (YYYY-MM-DD).",
+                        },
+                        "overrides": {
+                            "type": "object",
+                            "description": "Sobrescrições opcionais dos campos do template.",
+                        },
                     },
-                    "required": ["title", "atividade", "data_start"],
+                    "required": ["template_name", "reference_date"],
                 },
             },
             {
-                "name": "personal_create_recurring_event",
-                "description": "Create recurring personal event",
+                "name": "personal_create_weekly_cards",
+                "description": "Gerar cards semanais padrão (Planejamento, Hamilton, Tratamento).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "title": {"type": "string"},
-                        "atividade": {"type": "string"},
-                        "start_date": {"type": "string", "description": "ISO datetime"},
-                        "end_date": {"type": "string", "description": "ISO datetime"},
-                        "recurrence": {"type": "string", "description": "daily, weekly, monthly"},
-                        "count": {"type": "number", "description": "Number of occurrences"},
+                        "week_start": {
+                            "type": "string",
+                            "description": "Data da segunda-feira da semana (YYYY-MM-DD).",
+                        },
+                        "overrides": {
+                            "type": "object",
+                            "additionalProperties": {"type": "object"},
+                            "description": "Sobrescrições por template (ex: {hamilton: ...}).",
+                        },
                     },
-                    "required": ["title", "atividade", "start_date", "recurrence"],
+                    "required": ["week_start"],
                 },
             },
             {
-                "name": "personal_update_status",
-                "description": "Update personal task status",
+                "name": "personal_create_monthly_events",
+                "description": "Gerar eventos mensais padrão (NF, Fechamento, Revisão).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "page_id": {"type": "string"},
-                        "status": {"type": "string"},
+                        "year": {"type": "integer"},
+                        "month": {"type": "integer", "minimum": 1, "maximum": 12},
+                        "overrides": {
+                            "type": "object",
+                            "additionalProperties": {"type": "object"},
+                        },
                     },
-                    "required": ["page_id", "status"],
+                    "required": ["year", "month"],
                 },
             },
             {
-                "name": "personal_reschedule",
-                "description": "Reschedule personal task/event",
+                "name": "personal_create_medical_appointment",
+                "description": "Criar consulta médica com duração e especialidade.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "page_id": {"type": "string"},
-                        "new_start": {"type": "string", "description": "ISO datetime"},
-                        "new_end": {"type": "string", "description": "ISO datetime"},
+                        "doctor": {"type": "string"},
+                        "specialty": {"type": "string"},
+                        "date": {"type": "string", "description": "ISO 8601"},
+                        "duration_minutes": {"type": "integer", "default": 60},
+                        "status": {
+                            "type": "string",
+                            "enum": STATUS_OPTIONS,
+                            "default": PersonalStatus.NAO_INICIADO.value,
+                        },
                     },
-                    "required": ["page_id", "new_start"],
+                    "required": ["doctor", "specialty", "date"],
                 },
             },
         ]
 
     async def handle_tool_call(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-        """Handle personal tool calls"""
+        """Dispatch personal tool calls."""
         logger.info("handling_personal_tool", tool=tool_name, args=arguments)
+        self._ensure_available()
 
         if tool_name == "personal_create_task":
-            data = None
-            if "data_start" in arguments:
-                data = {"start": arguments.pop("data_start")}
-                if "data_end" in arguments:
-                    data["end"] = arguments.pop("data_end")
+            data = self._extract_data(arguments)
             return await self.personal_notion.create_card(data=data, **arguments)
 
-        elif tool_name == "personal_create_subtask":
-            return await self.personal_notion.create_subitem(**arguments)
+        if tool_name == "personal_create_subtask":
+            data = self._extract_data(arguments)
+            return await self.personal_notion.create_subitem(data=data, **arguments)
 
-        elif tool_name == "personal_create_event":
-            data = {
-                "start": arguments.pop("data_start"),
-                "end": arguments.pop("data_end", arguments["data_start"]),
-            }
-            return await self.personal_notion.create_event(data=data, **arguments)
-
-        elif tool_name == "personal_create_recurring_event":
-            from datetime import datetime
-
-            start = datetime.fromisoformat(arguments.pop("start_date"))
-            end = None
-            if "end_date" in arguments:
-                end = datetime.fromisoformat(arguments.pop("end_date"))
-            return await self.personal_notion.create_recurring_event(
-                start_date=start, end_date=end, **arguments
+        if tool_name == "personal_use_template":
+            reference = datetime.fromisoformat(arguments.pop("reference_date"))
+            overrides = arguments.pop("overrides", None)
+            return await self.personal_notion.use_template(
+                template_name=arguments["template_name"],
+                reference_date=reference,
+                overrides=overrides,
             )
 
-        elif tool_name == "personal_update_status":
-            return await self.personal_notion.update_status(**arguments)
-
-        elif tool_name == "personal_reschedule":
-            from datetime import datetime
-
-            new_start = datetime.fromisoformat(arguments.pop("new_start"))
-            new_end = None
-            if "new_end" in arguments:
-                new_end = datetime.fromisoformat(arguments.pop("new_end"))
-            return await self.personal_notion.reschedule(
-                page_id=arguments["page_id"], new_start=new_start, new_end=new_end
+        if tool_name == "personal_create_weekly_cards":
+            week_start = datetime.fromisoformat(arguments.pop("week_start"))
+            overrides = arguments.pop("overrides", None)
+            return await self.personal_notion.create_weekly_cards(
+                week_start=week_start,
+                overrides=overrides,
             )
 
-        else:
-            raise ValueError(f"Unknown personal tool: {tool_name}")
+        if tool_name == "personal_create_monthly_events":
+            overrides = arguments.pop("overrides", None)
+            return await self.personal_notion.create_monthly_events(
+                overrides=overrides,
+                **arguments,
+            )
+
+        if tool_name == "personal_create_medical_appointment":
+            appointment_date = datetime.fromisoformat(arguments.pop("date"))
+            return await self.personal_notion.create_medical_appointment(
+                date=appointment_date,
+                **arguments,
+            )
+
+        raise ValueError(f"Unknown personal tool: {tool_name}")

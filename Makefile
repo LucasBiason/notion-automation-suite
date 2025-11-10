@@ -1,7 +1,7 @@
 .PHONY: help install install-dev test lint format type-check run docker-build docker-run clean
 
 help:
-	@echo "Notion MCP Server - Comandos Disponíveis"
+	@echo "Notion Automation Suite - Comandos Disponíveis"
 	@echo ""
 	@echo "  make install        - Instalar dependências de produção"
 	@echo "  make install-dev    - Instalar dependências de desenvolvimento"
@@ -38,10 +38,10 @@ type-check:
 	mypy src
 
 run:
-	python -m notion_mcp.server
+	notion-mcp-server
 
 docker-build:
-	docker build -t notion-mcp-server:latest .
+	docker build -t notion-automation-suite:latest .
 
 docker-run:
 	docker compose up

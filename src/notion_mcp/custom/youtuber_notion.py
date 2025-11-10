@@ -8,8 +8,8 @@ Handles series and episodes with specific business rules:
 - Episode 1 has series synopsis
 """
 
-from datetime import datetime
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 import structlog
 
@@ -21,6 +21,7 @@ from notion_mcp.utils import (
     create_period,
     format_date_gmt3,
 )
+from notion_mcp.utils.validators import validate_status
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +47,70 @@ class YoutuberNotion(CustomNotion):
     def get_default_icon(self) -> str:
         """Default icon for youtuber cards"""
         return "🎬"
+
+    async def create_series(
+        self,
+        title: str,
+        sinopse: str,
+        total_episodes: int,
+        first_recording: datetime,
+        recording_interval_days: int = 1,
+        publication_hour: int = 12,
+        icon: Optional[str] = None,
+        episodes: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """Create a full series with automatically scheduled episodes."""
+
+        if total_episodes <= 0:
+            raise ValueError("Uma série precisa ter pelo menos um episódio")
+
+        normalized_first = self._normalize_recording_start(first_recording)
+
+        episodes_payload = self._build_episode_schedule(
+            total_episodes=total_episodes,
+            first_recording=normalized_first,
+            recording_interval_days=recording_interval_days,
+            publication_hour=publication_hour,
+            sinopse=sinopse,
+            overrides=episodes or [],
+        )
+
+        last_recording = episodes_payload[-1]["recording_date"].replace(
+            hour=23, minute=50, second=0, microsecond=0
+        )
+        periodo = create_period(normalized_first, last_recording, include_time=True)
+
+        series_card = await self.create_card(
+            title=title,
+            periodo=periodo,
+            descricao=sinopse,
+            icon=icon,
+        )
+
+        created_episodes = []
+        for episode_number, payload in enumerate(episodes_payload, start=1):
+            resumo = payload.get("resumo_episodio") if episode_number > 1 else sinopse
+            episode_title = payload.get("title") or f"Episódio {episode_number:02d}"
+
+            created = await self.create_episode(
+                parent_id=series_card["id"],
+                episode_number=episode_number,
+                title=episode_title,
+                recording_date=payload["recording_date"],
+                publication_date=payload["publication_date"],
+                resumo_episodio=resumo,
+                status=payload.get("status", YoutuberStatus.PARA_GRAVAR.value),
+                icon=payload.get("icon", "📺"),
+            )
+            created_episodes.append(created)
+
+        logger.info(
+            "series_created",
+            title=title,
+            episodes=len(created_episodes),
+        )
+
+        return {"series": series_card, "episodes": created_episodes}
 
     async def create_card(
         self,
@@ -162,13 +227,12 @@ class YoutuberNotion(CustomNotion):
         if episode_number == 1 and not resumo_episodio:
             raise ValueError("Episode 1 must have resumo_episodio (series synopsis)")
 
-        # Calculate recording end (default 23:50)
-        recording_end = recording_date.replace(hour=23, minute=50, second=0)
+        recording_start = self._normalize_recording_start(recording_date)
+        recording_end = recording_start.replace(hour=23, minute=50, second=0, microsecond=0)
 
-        # Build period (recording schedule)
-        periodo = create_period(recording_date, recording_end, include_time=True)
+        periodo = create_period(recording_start, recording_end, include_time=True)
 
-        # Format publication date
+        self._validate_publication_after_recording(recording_end, publication_date)
         data_lancamento = format_date_gmt3(publication_date, include_time=True)
 
         # Build properties
@@ -203,6 +267,120 @@ class YoutuberNotion(CustomNotion):
             icon=icon_dict,
         )
 
+    async def update_episode_status(
+        self,
+        episode_id: str,
+        status: str,
+    ) -> Dict[str, Any]:
+        """Update episode status."""
+        validate_status(status, self.database_type)
+        logger.info("youtuber_update_status", episode_id=episode_id, status=status)
+        properties = {"Status": self.service.build_status_property(status)}
+        return await self.service.update_page(episode_id, properties=properties)
+
+    async def reschedule_episode(
+        self,
+        episode_id: str,
+        new_recording_date: Optional[datetime] = None,
+        new_publication_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Reschedule recording and/or publication for an episode."""
+        if new_recording_date is None and new_publication_date is None:
+            raise ValueError("Informe ao menos uma nova data de gravação ou publicação")
+
+        properties: Dict[str, Any] = {}
+
+        if new_recording_date is not None:
+            normalized_start = self._normalize_recording_start(new_recording_date)
+            recording_end = normalized_start.replace(hour=23, minute=50, second=0, microsecond=0)
+            periodo = create_period(normalized_start, recording_end, include_time=True)
+            properties["Periodo"] = self.service.build_date_property(
+                periodo["start"], periodo.get("end")
+            )
+
+        if new_publication_date is not None:
+            properties["Data de Lançamento"] = self.service.build_date_property(
+                format_date_gmt3(new_publication_date, include_time=True)
+            )
+
+        if not properties:
+            raise ValueError("Nenhuma atualização aplicada ao episódio")
+
+        logger.info("youtuber_reschedule_episode", episode_id=episode_id, has_recording=new_recording_date is not None, has_publication=new_publication_date is not None)
+        return await self.service.update_page(episode_id, properties=properties)
+
+    async def schedule_recordings(
+        self,
+        series_id: str,
+        total_episodes: int,
+        start_recording: datetime,
+        recording_interval_days: int = 1,
+        publication_hour: int = 12,
+        base_title: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate a block of episodes for an existing series."""
+        if total_episodes <= 0:
+            raise ValueError("total_episodes deve ser maior que zero")
+
+        normalized_start = self._normalize_recording_start(start_recording)
+        titles_base = base_title or "Episódio"
+        created: List[Dict[str, Any]] = []
+
+        for index in range(total_episodes):
+            episode_number = index + 1
+            recording_date = normalized_start + timedelta(days=index * recording_interval_days)
+            recording_start = self._normalize_recording_start(recording_date)
+            publication_date = (recording_start + timedelta(days=1)).replace(
+                hour=publication_hour, minute=0, second=0, microsecond=0
+            )
+            title = f"{titles_base} {episode_number:02d}"
+            created_episode = await self.create_episode(
+                parent_id=series_id,
+                episode_number=episode_number,
+                title=title,
+                recording_date=recording_start,
+                publication_date=publication_date,
+            )
+            created.append(created_episode)
+
+        return {"episodes": created, "count": len(created)}
+
+    async def query_schedule(
+        self,
+        status: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Query episodes filtered by status and/or period."""
+        filters = []
+
+        if status:
+            validate_status(status, self.database_type)
+            filters.append({"property": "Status", "status": {"equals": status}})
+
+        if start_date:
+            filters.append({"property": "Data de Lançamento", "date": {"on_or_after": start_date}})
+
+        if end_date:
+            filters.append({"property": "Data de Lançamento", "date": {"on_or_before": end_date}})
+
+        filter_payload = {"and": filters} if filters else None
+        page_size = max(1, min(limit, 100))
+
+        response = await self.service.query_database(
+            database_id=self.database_id,
+            filter_conditions=filter_payload,
+            sorts=[{"property": "Data de Lançamento", "direction": "ascending"}],
+            page_size=page_size,
+        )
+
+        return {
+            "results": response.get("results", []),
+            "has_more": response.get("has_more", False),
+            "next_cursor": response.get("next_cursor"),
+        }
+
     async def create_subitem(
         self,
         parent_id: str,
@@ -226,3 +404,87 @@ class YoutuberNotion(CustomNotion):
         )
 
         return await self.create_card(title=title, **kwargs)
+
+    def _build_episode_schedule(
+        self,
+        total_episodes: int,
+        first_recording: datetime,
+        recording_interval_days: int,
+        publication_hour: int,
+        sinopse: str,
+        overrides: list,
+    ) -> list:
+        payload = []
+
+        for index in range(total_episodes):
+            episode_number = index + 1
+            override = overrides[index] if index < len(overrides) else {}
+
+            recording_date_raw = override.get("recording_date") or override.get("recording_start")
+            if recording_date_raw is not None:
+                recording_date = self._parse_datetime(recording_date_raw)
+            else:
+                recording_date = first_recording + timedelta(days=index * recording_interval_days)
+
+            recording_date = self._normalize_recording_start(recording_date)
+
+            publication_raw = override.get("publication_date")
+            if publication_raw is not None:
+                publication_date = self._parse_datetime(publication_raw)
+            else:
+                publication_date = self._default_publication_date(recording_date, publication_hour)
+
+            payload.append(
+                {
+                    "recording_date": recording_date,
+                    "publication_date": publication_date,
+                    "title": override.get("title"),
+                    "resumo_episodio": override.get("resumo_episodio", sinopse if episode_number == 1 else None),
+                    "status": override.get("status"),
+                    "icon": override.get("icon"),
+                }
+            )
+
+        return payload
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(
+                    "Datas de gravação/publicação devem estar em formato ISO 8601 (YYYY-MM-DDTHH:MM)."
+                ) from exc
+
+        raise TypeError("Datas de gravação/publicação devem ser datetime ou string ISO 8601.")
+
+    def _normalize_recording_start(self, recording_start: datetime) -> datetime:
+        expected_hour = int(self.RECORDING_START)
+        expected_minute = int((self.RECORDING_START % 1) * 60)
+
+        normalized = recording_start.replace(second=0, microsecond=0)
+
+        if normalized.hour != expected_hour or normalized.minute != expected_minute:
+            raise ValueError(
+                "Gravações devem iniciar às 21h00 para manter a rotina do canal."
+            )
+
+        return normalized
+
+    @staticmethod
+    def _default_publication_date(recording_date: datetime, publication_hour: int) -> datetime:
+        publication_hour = max(0, min(23, publication_hour))
+        return (recording_date + timedelta(days=1)).replace(
+            hour=publication_hour, minute=0, second=0, microsecond=0
+        )
+
+    @staticmethod
+    def _validate_publication_after_recording(recording_end: datetime, publication_date: datetime) -> None:
+        if publication_date <= recording_end:
+            raise ValueError(
+                "A data de publicação deve ser posterior ao término da gravação (após 23h50)."
+            )

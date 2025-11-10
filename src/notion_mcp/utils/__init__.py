@@ -10,10 +10,13 @@ from notion_mcp.utils.constants import (
     StudiesStatus,
     WorkStatus,
     YoutuberStatus,
+    WORK_CLIENTS,
+    WORK_PROJECTS,
 )
 from notion_mcp.utils.formatters import (
     calculate_class_end_time,
     create_period,
+    enforce_study_hours_limit,
     format_date_gmt3,
     format_duration,
     get_next_business_day,
@@ -41,11 +44,14 @@ __all__ = [
     "STATUS_BY_DATABASE",
     "DEFAULT_STATUS",
     "RELATION_FIELD",
+    "WORK_CLIENTS",
+    "WORK_PROJECTS",
     # Formatters
     "format_date_gmt3",
     "create_period",
     "get_study_hours",
     "calculate_class_end_time",
+    "enforce_study_hours_limit",
     "get_next_business_day",
     "parse_duration",
     "format_duration",

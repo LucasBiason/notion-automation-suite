@@ -100,49 +100,63 @@ def get_study_hours(weekday: int = 0) -> Tuple[int, int]:
     return (19, 21)  # Default 19:00-21:00
 
 
+def enforce_study_hours_limit(
+    start: datetime, duration_minutes: int
+) -> Tuple[datetime, datetime]:
+    """
+    Ensure study sessions respect daily time windows (19h-21h).
+
+    Args:
+        start: Proposed class start time
+        duration_minutes: Class duration in minutes
+
+    Returns:
+        Tuple with (normalized_start, normalized_end) respecting study hours
+
+    Raises:
+        ValueError: If the slot violates study rules
+    """
+    if duration_minutes <= 0:
+        raise ValueError("A duração da aula deve ser maior que zero.")
+
+    normalized_start = start.replace(second=0, microsecond=0)
+    start_hour, end_hour = get_study_hours(normalized_start.weekday())
+    expected_hour = int(start_hour)
+    expected_minute = int((start_hour % 1) * 60)
+
+    if normalized_start.hour != expected_hour or normalized_start.minute != expected_minute:
+        raise ValueError(
+            f"Aulas devem iniciar às {expected_hour:02d}:{expected_minute:02d} "
+            "de acordo com a agenda de estudos."
+        )
+
+    available_minutes = int((end_hour - start_hour) * 60)
+    if duration_minutes > available_minutes:
+        raise ValueError(
+            "A duração extrapola o limite diário (encerra após 21h00). "
+            "Reduza a carga ou reprograme para outro dia."
+        )
+
+    end_time = normalized_start + timedelta(minutes=duration_minutes)
+    return normalized_start, end_time
+
+
 def calculate_class_end_time(start: datetime, duration_minutes: int) -> datetime:
     """
-    Calculate class end time, respecting 21:00 limit
-
-    If class would end after 21:00, it overflows to next business day at 19:00
+    Calculate class end time ensuring it respects the 21h00 boundary.
 
     Args:
         start: Class start datetime
         duration_minutes: Class duration in minutes
 
     Returns:
-        Class end datetime (might be on a different day if overflow)
+        Class end datetime
 
-    Examples:
-        >>> start = datetime(2025, 10, 22, 19, 0)
-        >>> calculate_class_end_time(start, 90)  # 1h30
-        datetime(2025, 10, 22, 20, 30)  # Normal case
-
-        >>> start = datetime(2025, 10, 22, 20, 0)
-        >>> calculate_class_end_time(start, 150)  # 2h30
-        # Would be 22:30, but limit is 21:00
-        # Overflows to next day at 19:00
+    Raises:
+        ValueError: When the schedule violates study rules
     """
-    end = start + timedelta(minutes=duration_minutes)
-
-    # Check if exceeds 21:00
-    if end.hour > 21 or (end.hour == 21 and end.minute > 0):
-        # Overflow to next business day
-        next_day = start + timedelta(days=1)
-        while next_day.weekday() >= 5:  # Skip Saturday (5) and Sunday (6)
-            next_day += timedelta(days=1)
-
-        # Start at 19:00 or 19:30 (if Tuesday)
-        start_hour, _ = get_study_hours(next_day.weekday())
-        next_start = next_day.replace(
-            hour=int(start_hour), minute=int((start_hour % 1) * 60), second=0
-        )
-
-        # Calculate remaining time
-        remaining = duration_minutes - ((21 - start.hour) * 60 - start.minute)
-        return next_start + timedelta(minutes=remaining)
-
-    return end
+    _, end_time = enforce_study_hours_limit(start, duration_minutes)
+    return end_time
 
 
 def get_next_business_day(date: datetime) -> datetime:

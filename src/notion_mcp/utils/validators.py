@@ -6,13 +6,14 @@ Validates card data before sending to Notion API, ensuring all rules are followe
 
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from notion_mcp.utils.constants import (
     RELATION_FIELD,
     STATUS_BY_DATABASE,
     DatabaseType,
 )
+from notion_mcp.utils.formatters import get_study_hours
 
 
 class ValidationError(Exception):
@@ -76,24 +77,41 @@ def validate_status(status: str, database_type: DatabaseType) -> None:
         )
 
 
-def validate_timezone(date_str: str) -> None:
+def validate_timezone(date_value: Union[str, datetime]) -> None:
     """
     Validate that datetime string uses GMT-3 timezone
 
     Args:
-        date_str: Date string to validate
+        date_value: Date string or datetime to validate
 
     Raises:
         ValidationError: If timezone is not GMT-3
     """
-    if "T" in date_str and "-03:00" not in date_str:
-        raise ValidationError(
-            f"Datetime must use GMT-3 timezone (-03:00): {date_str}. "
-            f"Use utils.formatters.format_date_gmt3() to format dates correctly."
-        )
+    if isinstance(date_value, datetime):
+        tzinfo = date_value.tzinfo
+        if tzinfo is None:
+            raise ValidationError(
+                "Datetime objects devem incluir timezone GMT-3 (-03:00). "
+                "Use format_date_gmt3() para gerar valores corretos."
+            )
+
+        offset = tzinfo.utcoffset(date_value)
+        if offset is None or offset.total_seconds() != -10800:
+            raise ValidationError("Datetime precisa estar no timezone GMT-3 (-03:00).")
+        return
+
+    if isinstance(date_value, str):
+        if "T" in date_value and "-03:00" not in date_value:
+            raise ValidationError(
+                f"Datetime deve usar GMT-3 (-03:00): {date_value}. "
+                "Use utils.formatters.format_date_gmt3() para formatar corretamente."
+            )
+        return
+
+    raise ValidationError("Datas devem ser strings ISO ou datetime válidos.")
 
 
-def validate_period(period: Dict[str, str], database_type: DatabaseType) -> None:
+def validate_period(period: Dict[str, Any], database_type: DatabaseType) -> None:
     """
     Validate period dict
 
@@ -107,25 +125,26 @@ def validate_period(period: Dict[str, str], database_type: DatabaseType) -> None
     if "start" not in period:
         raise ValidationError("Period must have 'start' field")
 
-    # Validate timezone if datetime
-    if "T" in period["start"]:
-        validate_timezone(period["start"])
+    start_value = period["start"]
+    end_value = period.get("end")
 
-    if "end" in period and "T" in period["end"]:
-        validate_timezone(period["end"])
+    if isinstance(start_value, datetime) or (
+        isinstance(start_value, str) and "T" in start_value
+    ):
+        validate_timezone(start_value)
 
-    # Validate end is after start
-    if "end" in period:
-        try:
-            start_dt = datetime.fromisoformat(period["start"].replace("-03:00", ""))
-            end_dt = datetime.fromisoformat(period["end"].replace("-03:00", ""))
+    if end_value is not None and (
+        isinstance(end_value, datetime) or (isinstance(end_value, str) and "T" in end_value)
+    ):
+        validate_timezone(end_value)
 
-            if end_dt < start_dt:
-                raise ValidationError(
-                    f"Period end ({period['end']}) must be after start ({period['start']})"
-                )
-        except ValueError as e:
-            raise ValidationError(f"Invalid date format: {e}") from e
+    start_dt = _coerce_datetime(start_value)
+    if end_value is not None:
+        end_dt = _coerce_datetime(end_value)
+        if end_dt < start_dt:
+            raise ValidationError(
+                f"Period end ({period['end']}) must be after start ({period['start']})"
+            )
 
 
 def validate_relation_field(
@@ -188,7 +207,7 @@ def validate_card_data(
     validate_relation_field(data, database_type, parent_id)
 
     # Validate emoji is not in title (should be separate)
-    if "emoji" in data and data.get("emoji") in data.get("title", ""):
+    if "emoji" in data and data.get("emoji") and data.get("emoji") in data.get("title", ""):
         raise ValidationError("Emoji should not be in title. Use separate 'emoji' property.")
 
 
@@ -229,9 +248,18 @@ def validate_study_hours(start: datetime, end: datetime) -> None:
         )
 
 
-def get_study_hours(weekday: int) -> tuple:
-    """Get study hours based on weekday"""
+def _coerce_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
 
-    if weekday == 1:  # Tuesday
-        return (19.5, 21)
-    return (19, 21)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValidationError(f"Invalid date format: {value}") from exc
+
+    raise ValidationError(
+        f"Unsupported date type: {type(value).__name__}. Provide ISO string ou datetime."
+    )
+
+
