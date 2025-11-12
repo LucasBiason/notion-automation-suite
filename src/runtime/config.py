@@ -67,16 +67,16 @@ def load_environment() -> None:
 
     candidate = os.getenv(ENV_PATH_VARIABLE)
     if candidate:
-        load_dotenv(candidate)
+        load_dotenv(candidate, override=True)
         return
 
     default_path = Path(DEFAULT_ENV_PATH)
     if default_path.exists():
-        load_dotenv(default_path)
+        load_dotenv(default_path, override=True)
         return
 
     # Fallback to default .env discovery in current working directory hierarchy
-    load_dotenv()
+    load_dotenv(override=True)
 
 
 def configure_logging() -> None:

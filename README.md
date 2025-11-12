@@ -1,3 +1,14 @@
+<div align="center">
+  <img src="docs/assets/notion-mcp-banner.png" alt="Notion MCP Server banner" width="100%" />
+</div>
+
+<div align="center">
+  <a href="https://github.com/LucasBiason/notion-automation-suite/releases"><img src="https://img.shields.io/github/v/release/LucasBiason/notion-automation-suite?label=release" alt="Release" /></a>
+  <a href="https://github.com/LucasBiason/notion-automation-suite/blob/main/pyproject.toml"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+" /></a>
+  <a href="https://github.com/LucasBiason/notion-automation-suite/actions"><img src="https://img.shields.io/badge/tests-make%20test-success.svg" alt="Test suite" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-success.svg" alt="License" /></a>
+</div>
+
 # Notion MCP Server
 
 Servidor MCP enxuto para automatizar fluxos do Notion via Model Context Protocol. Ele encapsula regras de negócio específicas das bases e expõe tools compatíveis com Cursor e outros agentes MCP.
