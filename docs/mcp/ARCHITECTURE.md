@@ -5,18 +5,20 @@
 O servidor MCP é composto por quatro blocos principais:
 
 ```
-Agente MCP  →  runtime/stdio_server.py  →  runtime/notion_server.py
-                                     │           └── custom/* (regras por domínio)
-                                     └── services/notion_service.py
-                                             └── utils/* (constantes, validações, formatadores)
+Agente MCP  →  FastMCP (runtime/app.py)
+                         │
+                         ├── tools/*               (metadados + roteamento)
+                         ├── custom/*              (regras por domínio)
+                         ├── services/notion_service.py
+                         └── utils/*               (constantes, validações, formatadores)
 ```
 
 ### 1. Runtime (`server.py`, `runtime/*`)
 
-- Inicializa variáveis de ambiente com `runtime/config.py` (via `.env`).
+- Inicializa variáveis de ambiente com `runtime/config.py` (via `.env` ou env vars do container).
 - Configura logging estruturado (`structlog`).
-- Expõe o loop stdio (`runtime/stdio_server.py`) para receber JSON-RPC MCP.
-- Roteia chamadas para o servidor principal (`runtime/notion_server.py`).
+- Instancia o FastMCP (`runtime/app.py`), registrando tools dinâmicas e resources.
+- Executa o transporte desejado (`server.py` chama `FastMCP.run("stdio")`).
 
 ### 2. Serviço HTTP (`services/notion_service.py`)
 
@@ -55,11 +57,10 @@ Agente MCP  →  runtime/stdio_server.py  →  runtime/notion_server.py
 ## Fluxo de uma chamada
 
 1. Agente envia `tools/call` com `name` e `arguments`.
-2. `runtime/stdio_server.py` lê a linha, converte JSON e roteia.
-3. `runtime/notion_server.py` valida se a tool existe, recupera handler e executa.
-4. O domínio (`custom/*`) aplica validações e monta payload.
-5. `services/notion_service.py` envia requisição ao Notion, trata eventuais retentativas, retorna JSON.
-6. O runtime devolve a resposta MCP com `result.content` contendo o JSON serializado.
+2. FastMCP valida esquema (derivado automaticamente a partir do JSON Schema das tools) e chama o handler registrado.
+3. O domínio (`custom/*`) aplica validações e monta payload.
+4. `services/notion_service.py` envia requisição ao Notion, trata eventuais retentativas, retorna JSON.
+5. FastMCP encapsula a resposta em `result.content` e devolve ao agente.
 
 ## Tratamento de erros
 
@@ -94,7 +95,7 @@ Para adicionar uma nova base:
 1. Criar arquivo em `custom/` herdando de `CustomNotion`.
 2. Adicionar regras específicas (campos, status, validações).
 3. Registrar tools correspondentes em `tools/`.
-4. Atualizar `runtime/notion_server.py` para registrar a nova classe.
+4. Atualizar `runtime/app.py` para instanciar as novas regras e expô-las no FastMCP.
 5. Acrescentar testes em `tests/custom/` e, se necessário, ferramentas em `tests/tools/`.
 
 Para novas tools em bases existentes basta expandir a classe de domínio e ajustar o arquivo em `tools/` pertinente.

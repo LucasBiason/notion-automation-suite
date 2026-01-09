@@ -510,7 +510,7 @@ class StudyNotion(CustomNotion):
             # Calculate new period
 
             weekday = current_date.weekday()
-            start_hour, _ = get_study_hours(weekday)
+            start_hour, _ = get_study_hours(weekday, date=current_date)
 
             # Set start time
             class_start = current_date.replace(
@@ -626,7 +626,7 @@ class StudyNotion(CustomNotion):
 
         start_time = start_time.replace(second=0, microsecond=0)
 
-        start_hour, end_hour = get_study_hours(start_time.weekday())
+        start_hour, end_hour = get_study_hours(start_time.weekday(), date=start_time)
         expected_hour = int(start_hour)
         expected_minute = int((start_hour % 1) * 60)
 

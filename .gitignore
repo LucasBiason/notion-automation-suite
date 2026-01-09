@@ -29,6 +29,7 @@ dist/
 # Private configuration
 config/.env
 config/private/
+config/notion-mcp.env
 
 # Runtime artifacts
 logs/

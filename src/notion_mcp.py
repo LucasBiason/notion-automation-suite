@@ -34,7 +34,7 @@ __all__ = [
     "PersonalNotion",
 ]
 
-_SUBMODULES = ("custom", "exceptions", "runtime", "services", "tools", "utils")
+_SUBMODULES = ("custom", "exceptions", "runtime", "services", "tools", "utils", "server")
 for _name in _SUBMODULES:
     _module = importlib.import_module(_name)
     sys.modules[f"{__name__}.{_name}"] = _module

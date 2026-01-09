@@ -17,7 +17,8 @@ Servidor MCP enxuto para automatizar fluxos do Notion via Model Context Protocol
 
 - **Domínios suportados:** trabalho, estudos, pessoal e conteúdo.
 - **Regras embutidas:** validação de título, status, relações, períodos e horários antes da chamada HTTP.
-- **Tecnologias:** Python 3.10+, `httpx`, `tenacity`, `structlog`, `pytest`.
+- **Tecnologias:** Python 3.10+, `httpx`, `tenacity`, `structlog`, `pytest`, `mcp`.
+- **Runtime:** [FastMCP](https://smithery.ai/docs/cookbooks/python_custom_container) com suporte stdio/SSE/HTTP.
 - **Integração:** execução via stdio (`notion-mcp-server`) e container Docker pronto para uso.
 
 ## Estrutura do repositório
@@ -28,7 +29,7 @@ notion-automation-suite/
 │   ├── custom/        # Regras por domínio (Work, Studies, Personal, Youtuber)
 │   ├── services/      # Wrapper da API do Notion
 │   ├── tools/         # Definição das tools MCP
-│   ├── runtime/       # Inicialização, carga de env e loop stdio
+│   ├── runtime/       # Fabricação FastMCP, carga de env e logging
 │   ├── utils/         # Constantes, validações e formatadores
 │   ├── exceptions/    # Exceções específicas do serviço
 │   └── notion_mcp.py  # Compatibilidade com imports antigos

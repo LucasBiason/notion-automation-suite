@@ -1,27 +1,16 @@
-"""Minimal entrypoint for the Notion MCP server."""
+"""Entrypoint for the FastMCP-powered Notion server."""
 
 from __future__ import annotations
 
-import asyncio
-
-from runtime import (
-    NotionMCPServer,
-    configure_logging,
-    load_environment,
-    run_stdio_server,
-)
+from runtime import configure_logging, create_fastmcp_app, load_environment
 
 
 def main() -> None:
-    """Load configuration and start the stdio MCP server."""
+    """Load configuration and start the FastMCP stdio server."""
     load_environment()
     configure_logging()
-
-    async def _run() -> None:
-        server = NotionMCPServer()
-        await run_stdio_server(server)
-
-    asyncio.run(_run())
+    app = create_fastmcp_app()
+    app.run("stdio")
 
 
 if __name__ == "__main__":

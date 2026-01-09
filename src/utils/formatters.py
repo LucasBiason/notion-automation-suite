@@ -80,10 +80,38 @@ def create_period(
     return result
 
 
-def get_study_hours(weekday: int = 0) -> Tuple[int, int]:
-    """Return study hours for the given weekday based on configuration."""
-
-    if weekday == 1 and "tuesday" in STUDY_HOURS:
+def get_study_hours(weekday: int = 0, date: Optional[datetime] = None) -> Tuple[float, int]:
+    """
+    Return study hours for the given weekday based on configuration.
+    
+    Rules:
+    - Default: 19:00-21:00
+    - Tuesday: 19:30-21:00 (except during treatment pause periods)
+    - Treatment pause: First 2 weeks of January and last 2 weeks of December
+      During pause, Tuesday uses default hours (19:00-21:00)
+    
+    Args:
+        weekday: Day of week (0=Monday, 1=Tuesday, etc.)
+        date: Optional datetime to check for treatment pause periods
+    
+    Returns:
+        Tuple of (start_hour, end_hour)
+    """
+    # Check if we're in treatment pause period
+    in_treatment_pause = False
+    if date:
+        month = date.month
+        day = date.day
+        
+        # Last 2 weeks of December (days 18-31)
+        if month == 12 and day >= 18:
+            in_treatment_pause = True
+        # First 2 weeks of January (days 1-14)
+        elif month == 1 and day <= 14:
+            in_treatment_pause = True
+    
+    # Tuesday special schedule (only if NOT in treatment pause)
+    if weekday == 1 and "tuesday" in STUDY_HOURS and not in_treatment_pause:
         config = STUDY_HOURS["tuesday"]
     else:
         config = STUDY_HOURS["default"]
@@ -111,7 +139,7 @@ def enforce_study_hours_limit(
         raise ValueError("Class duration must be greater than zero.")
 
     normalized_start = start.replace(second=0, microsecond=0)
-    start_hour, end_hour = get_study_hours(normalized_start.weekday())
+    start_hour, end_hour = get_study_hours(normalized_start.weekday(), date=normalized_start)
     expected_hour = int(start_hour)
     expected_minute = int((start_hour % 1) * 60)
 

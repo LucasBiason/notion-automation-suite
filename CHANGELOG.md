@@ -1,5 +1,18 @@
 # Changelog
 
+# Changelog
+
+## [0.2.0] - 2025-11-14
+
+### Changed
+- Runtime migrado para FastMCP (`runtime/app.py`), eliminando o loop customizado de stdio e garantindo compatibilidade total com o protocolo oficial.
+- `server.py`, documentação (`README.md`, `docs/mcp/*`) e scripts foram atualizados para refletir o novo fluxo baseado em FastMCP, conforme as boas práticas descritas pela Smithery e Docker.
+- `pyproject.toml` agora depende de `mcp>=1.21.1`.
+
+### Added
+- Fábrica dinâmica de tools via geração automática de funções tipadas a partir dos JSON Schemas já existentes, reduzindo manutenção manual.
+- Registro automático de resources MCP (`notion://database/*`) diretamente no FastMCP.
+
 ## [0.1.0] - 2025-11-10
 
 ### Added

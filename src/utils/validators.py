@@ -221,7 +221,7 @@ def validate_study_hours(start: datetime, end: datetime) -> None:
 
     Rules:
     - Default: 19:00-21:00
-    - Tuesday: 19:30-21:00
+    - Tuesday: 19:30-21:00 (except during treatment pause: first 2 weeks of Jan, last 2 weeks of Dec)
     - NEVER after 21:00
 
     Args:
@@ -233,7 +233,7 @@ def validate_study_hours(start: datetime, end: datetime) -> None:
     """
 
     weekday = start.weekday()
-    expected_start, max_end = get_study_hours(weekday)
+    expected_start, max_end = get_study_hours(weekday, date=start)
 
     # Check start time
     start_hour = start.hour + (start.minute / 60)

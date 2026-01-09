@@ -19,20 +19,22 @@ Agentes MCP genéricos não enxergam as regras particulares das bases do Notion 
 - **Regras por domínio:** cada base (trabalho, estudos, pessoal, conteúdo) tem uma classe dedicada com campos, hierarquias e padrões aceitos.
 - **Validação antecipada:** entradas são verificadas antes de chamar a API, reduzindo erros e economizando requisições.
 - **Interface enxuta:** operações de alto nível (`create_card`, `create_subitem`, `query_schedule`, etc.) traduzem automaticamente para o payload esperado pelo Notion.
-- **Integração direta:** o servidor expõe tools MCP via stdio, prontas para o Cursor ou outros orquestradores compatíveis.
+- **Runtime FastMCP:** aproveita o servidor [FastMCP](https://smithery.ai/docs/cookbooks/python_custom_container) para gerir tools, resources, SSE e HTTP além do stdio.
 
 ## Arquitetura resumida
 
 ```
-Agente MCP → runtime/stdio_server.py → runtime/notion_server.py
-                       │                    └── custom/* (regras)
-                       └── services/notion_service.py
-                                └── utils/* (constantes, validações, formatadores)
+Agente MCP → FastMCP (runtime/app.py)
+                  │
+                  ├── tools/*  (metadados + roteamento)
+                  ├── custom/* (regras por domínio)
+                  ├── services/notion_service.py
+                  └── utils/* (constantes, validações, formatadores)
 ```
 
 ### Camadas
 
-1. **Runtime** (`server.py`, `runtime/*`): carrega ambiente, configura logging e executa o loop stdio.
+1. **Runtime** (`server.py`, `runtime/app.py`): carrega ambiente, configura logging e instancia o FastMCP.
 2. **Serviço HTTP** (`services/notion_service.py`): wrapper assíncrono sobre a API REST do Notion (httpx + tenacity).
 3. **Domínios** (`custom/*`): regras por base com validações e defaults reutilizáveis.
 4. **Ferramentas MCP** (`tools/*`): metadados e roteamento das tools.
@@ -54,7 +56,7 @@ No Cursor, basta chamar a tool `work_create_project`; o MCP valida entradas e en
 
 ## Stack e métricas
 
-- **Tecnologias:** Python 3.10+, `httpx`, `tenacity`, `structlog`, `pytest`, `ruff`, `mypy`.
+- **Tecnologias:** Python 3.10+, `httpx`, `tenacity`, `structlog`, `pytest`, `ruff`, `mypy`, `mcp`.
 - **Qualidade:** testes unitários e de integração (`make test`) cobrindo domínios, serviço HTTP e tools.
 - **Observabilidade:** logs JSON com `structlog`; métricas podem ser adicionadas conforme necessidade.
 
